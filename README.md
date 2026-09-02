@@ -1,70 +1,100 @@
 # VC Elevate Painting
 
-A Vite + React + TypeScript marketing site with an Express API and PostgreSQL inquiry database.
+> [!IMPORTANT]
+> **Status: active development.** The website and inquiry workflow run locally, and inquiries can be stored in PostgreSQL. The project is not deployed for public use yet. Email notifications, final project photography, and production monitoring are still planned.
 
-## Architecture
+VC Elevate Painting is a full-stack website for a residential and commercial painting business. It combines a polished, responsive marketing site with a real inquiry workflow: customers can describe a project, the backend validates the request, and PostgreSQL stores it for follow-up.
+
+This started as more than a visual redesign. I wanted to build a small but complete system around a real business need and practice the less-visible parts of web development too: API design, database migrations, validation, error handling, security boundaries, testing, and deployment planning.
+
+## What currently works
+
+- Responsive React interface based on the VC Elevate brand
+- Service, project, company, and contact sections
+- Accessible estimate form with client-side feedback
+- Express API with server-side validation
+- PostgreSQL inquiry storage and repeatable SQL migrations
+- Loading, success, timeout, field-error, and server-error states
+- Basic spam protection through a honeypot and rate limiting
+- Security headers, restricted CORS, body-size limits, and parameterized SQL
+- Backend validation tests and production builds
+
+## Technology
+
+| Area | Tools |
+| --- | --- |
+| Frontend | React, TypeScript, Vite, CSS |
+| Backend | Node.js, Express, Zod |
+| Database | PostgreSQL, `pg` connection pooling, SQL migrations |
+| Quality and security | ESLint, Node test runner, Helmet, CORS, rate limiting |
+
+## How an inquiry moves through the project
 
 ```text
-React estimate form
-        | HTTPS + JSON
-        v
-Express API: POST /api/inquiries
-        | parameterized SQL through pg.Pool
-        v
-PostgreSQL: inquiries table
+Customer completes the React form
+                |
+                v
+POST /api/inquiries
+                |
+                v
+Express validates and normalizes the request
+                |
+                v
+Parameterized INSERT through pg.Pool
+                |
+                v
+PostgreSQL stores the inquiry
 ```
 
-React never connects directly to PostgreSQL. `DATABASE_URL` and all server secrets belong only in `server/.env`; never put database credentials in frontend code or a `VITE_*` variable.
+The browser never connects directly to PostgreSQL. Database credentials and other backend settings stay in `server/.env`, which is deliberately excluded from Git.
 
-The backend stores website inquiries only. It does not provide accounts, estimates, payments, projects, or an admin screen.
+## Run it locally
 
-## Prerequisites
+### Prerequisites
 
 - Node.js 20 or newer
 - npm
 - PostgreSQL 13 or newer
 
-PostgreSQL 13+ supplies `gen_random_uuid()`, so the migration needs no extension.
+### 1. Install dependencies
 
-## First-time setup
-
-### 1. Install both packages
+From the project root:
 
 ```bash
-npm install
-cd server
-npm install
-cd ..
+npm ci
+npm --prefix server ci
 ```
 
 If PowerShell blocks `npm.ps1`, use `npm.cmd` instead of `npm`.
 
-### 2. Create the database
+### 2. Create an empty PostgreSQL database
+
+Create a database named `vc_elevate_painting` with pgAdmin or the command line:
 
 ```bash
 createdb vc_elevate_painting
 ```
 
-Alternatively, run `CREATE DATABASE vc_elevate_painting;` in `psql`.
+The command is optional; creating the same database through pgAdmin works equally well.
 
 ### 3. Configure the backend
 
-PowerShell:
+Copy the safe template:
 
 ```powershell
 Copy-Item server/.env.example server/.env
 ```
 
-macOS/Linux:
+On macOS or Linux:
 
 ```bash
 cp server/.env.example server/.env
 ```
 
-Edit `server/.env`:
+Then update `server/.env` with your local PostgreSQL credentials:
 
 ```dotenv
-DATABASE_URL=postgresql://postgres:your-password@localhost:5432/vc_elevate_painting
+DATABASE_URL=postgresql://your-user:your-password@localhost:5432/vc_elevate_painting
 PORT=8787
 FRONTEND_ORIGIN=http://localhost:5173
 NODE_ENV=development
@@ -74,64 +104,59 @@ RATE_LIMIT_WINDOW_MS=900000
 RATE_LIMIT_MAX=5
 ```
 
-Do not commit `server/.env`; it is ignored by Git.
+Do not commit this file. If the password contains URL-reserved characters such as `@`, `:`, `/`, `#`, or `%`, URL-encode the password portion of the connection string.
 
-### 4. Apply the migration
+### 4. Create the database tables
 
 ```bash
 npm run db:migrate
 ```
 
-The runner applies SQL files in `server/db/migrations/` in filename order and records them in `schema_migrations`. Re-running it skips migrations already applied.
+The migration runner creates the inquiry schema and records applied migrations in `schema_migrations`. It is safe to run the command again; migrations that have already been applied are skipped.
 
-The initial migration creates `inquiries` with UUID IDs, constraints, status/source fields, timezone-aware timestamps, an `updated_at` trigger, and a `(status, created_at DESC)` index. Phone and email syntax are enforced by the API.
-
-## Running locally from now on
+### 5. Start both sides
 
 Use two terminals from the project root.
 
-Terminal 1 - backend:
+Backend:
 
 ```bash
 npm run dev:server
 ```
 
-Terminal 2 - frontend:
+Frontend:
 
 ```bash
 npm run dev
 ```
 
-- Frontend: `http://localhost:5173`
-- API: `http://127.0.0.1:8787`
-- Health: `http://127.0.0.1:8787/api/health`
+Open `http://localhost:5173`.
 
-Vite proxies `/api/*` to port `8787` during development. The form posts to `/api/inquiries` and contains no credentials.
+The API runs at `http://127.0.0.1:8787`, and its health endpoint is available at `http://127.0.0.1:8787/api/health`. Vite forwards local `/api/*` requests to the backend automatically.
 
-The API can start while PostgreSQL is unavailable. Invalid requests still receive `400` field errors; valid submissions receive a generic `503` until the database is reachable.
+## Useful commands
 
-## Environment variables
+| Command | What it does |
+| --- | --- |
+| `npm run dev` | Starts the frontend development server. |
+| `npm run dev:server` | Starts the backend in watch mode. |
+| `npm run db:migrate` | Applies pending PostgreSQL migrations. |
+| `npm run lint` | Checks frontend and backend code. |
+| `npm run test:server` | Runs backend validation tests. |
+| `npm run typecheck:server` | Type-checks the backend without generating files. |
+| `npm run build:all` | Creates production builds for both applications. |
+| `npm run preview` | Previews the frontend production build. |
 
-Backend variables are validated at startup.
+## API overview
 
-| Variable | Required | Purpose |
-| --- | --- | --- |
-| `DATABASE_URL` | Yes | Server-only PostgreSQL URL. |
-| `FRONTEND_ORIGIN` | Yes | Exact allowed browser origin, without a trailing slash. |
-| `PORT` | No | API port; default `8787`. |
-| `NODE_ENV` | No | `development`, `test`, or `production`. |
-| `DATABASE_SSL` | No | `true` only when the provider requires trusted TLS. |
-| `TRUST_PROXY` | No | `true` only behind one trusted reverse proxy. |
-| `RATE_LIMIT_WINDOW_MS` | No | Window; default 15 minutes. |
-| `RATE_LIMIT_MAX` | No | Requests per window/IP; default 5. |
+The public backend currently exposes one write endpoint:
 
-Follow the database provider's TLS instructions. Do not disable certificate verification in application code.
+```text
+POST /api/inquiries
+Content-Type: application/json
+```
 
-## API contract
-
-### `POST /api/inquiries`
-
-Use `Content-Type: application/json`.
+Example request:
 
 ```json
 {
@@ -144,140 +169,58 @@ Use `Content-Type: application/json`.
 }
 ```
 
-Success (`201`):
+A successful request returns only an inquiry ID and creation time. Submitted contact details, database errors, SQL information, and stack traces are never returned to the browser.
 
-```json
-{
-  "success": true,
-  "inquiryId": "00000000-0000-0000-0000-000000000000",
-  "createdAt": "2026-08-19T12:00:00.000Z"
-}
-```
+The frontend and backend each keep a service allowlist. If the options in `src/data/siteContent.ts` change, update `INQUIRY_SERVICE_OPTIONS` in `server/src/validation/inquiry.ts` as well.
 
-Validation failure (`400`):
+## Database notes
 
-```json
-{
-  "success": false,
-  "errors": { "email": "Please enter a valid email address." }
-}
-```
+The initial migration creates:
 
-The API never returns submitted customer data, SQL details, database errors, or stack traces.
+- UUID inquiry IDs
+- Contact, service, location, and project-message fields
+- `new`, `contacted`, `quoted`, `won`, and `lost` statuses
+- Source and consent fields
+- Timezone-aware creation and update timestamps
+- An automatic `updated_at` trigger
+- An index for status-based inquiry queues
 
-## Form behavior
+PostgreSQL is the source of truth. No database contents or customer inquiries are included in this repository.
 
-- Client feedback plus server-side validation
-- Synchronous duplicate-submit guard
-- Disabled `Sending inquiry...` state
-- Only known server field errors are displayed
-- Values remain after network/server failures
-- Success appears only after API acceptance
-- Hidden honeypot for basic bot filtering
-- 15-second timeout with a safe retry message
+## Security choices
 
-The backend service allowlist mirrors `serviceOptions` in `src/data/siteContent.ts`. When services change, also update `INQUIRY_SERVICE_OPTIONS` in `server/src/validation/inquiry.ts`.
+This is still an MVP, but the current backend includes a practical baseline:
 
-## Security baseline
+- Secrets are read from server-side environment variables
+- Requests are validated and normalized with Zod
+- SQL values are passed through parameterized queries
+- CORS accepts only the configured frontend origin
+- Helmet adds common HTTP security headers
+- Inquiry requests are rate-limited per IP
+- JSON requests are limited to 20 KB
+- Honeypot submissions are acknowledged without being stored
+- Logs avoid form contents and other customer information
 
-- Helmet and exact-origin CORS
-- 20 KB JSON limit and JSON content-type enforcement
-- Zod validation and parameterized SQL
-- Five inquiry attempts per 15 minutes/IP by default
-- Honeypot requests acknowledged without storage
-- Generic client errors and PII-free request logs
-- One reusable `pg.Pool` and graceful shutdown
+The current rate limiter stores counters in one server process. A shared store such as Redis would be required before running multiple backend instances.
 
-The limiter uses process memory for the initial single-instance MVP. Use a shared store such as Redis before horizontally scaling.
+## What is still planned
 
-## Commands
+- Deploy the frontend, backend, and managed PostgreSQL database
+- Add reliable email notifications for new inquiries
+- Add retry/monitoring behavior for notification failures
+- Replace MVP imagery with approved project photography
+- Add continuous integration for automated checks
+- Define operational backup and customer-data retention practices
+- Consider an authenticated inquiry dashboard only if the business workflow needs one
 
-| Command | Purpose |
-| --- | --- |
-| `npm run dev` | Start Vite. |
-| `npm run dev:server` | Start the API in watch mode. |
-| `npm run db:migrate` | Apply pending migrations. |
-| `npm run build` | Build the frontend. |
-| `npm run build:server` | Compile to `server/dist/`. |
-| `npm run build:all` | Build frontend and backend. |
-| `npm run lint` | Lint all TypeScript. |
-| `npm run typecheck:server` | Type-check the backend. |
-| `npm run test:server` | Run validation tests. |
-| `npm run preview` | Preview the frontend build. |
+The project deliberately does not claim verified licensing, insurance, certifications, or review totals. Those details should only appear after confirmation from the business owner.
 
-## Test an inquiry manually
+## Production considerations
 
-With PostgreSQL, the migration, and backend running:
+The Vite proxy exists only during local development. A deployment must route public `/api/*` requests to Express, provide backend environment variables through the hosting platform, run migrations as a release step, and serve the site over HTTPS.
 
-```powershell
-$body = @{
-  name = 'Alex Rivera'
-  phone = '(760) 555-0142'
-  email = 'alex@example.com'
-  service = 'Exterior painting'
-  location = 'San Diego'
-  message = 'Please quote the exterior of my two-story home.'
-} | ConvertTo-Json
+`DATABASE_URL` must never be exposed through a `VITE_*` variable. Hosted PostgreSQL TLS settings should follow the provider's certificate instructions rather than disabling certificate verification.
 
-Invoke-RestMethod `
-  -Method Post `
-  -Uri 'http://127.0.0.1:8787/api/inquiries' `
-  -ContentType 'application/json' `
-  -Body $body
-```
+## Project media
 
-Verify without selecting full customer messages:
-
-```bash
-psql "$DATABASE_URL" -c "SELECT id, name, status, source, consent_to_contact, created_at FROM inquiries ORDER BY created_at DESC LIMIT 5;"
-```
-
-## Manual checklist
-
-1. Valid inquiry: one `201` and one row with `new`, `website`, and consent true.
-2. Bad email, short phone, or unknown service: field error, retained values, no row.
-3. Overlong field: `400`; JSON over 20 KB: `413`.
-4. Backend unavailable: retry/call message and button re-enabled.
-5. Database unavailable: generic `503` without database details.
-6. Rapid submissions: UI blocks duplicates; direct bursts eventually receive `429`.
-7. SQL-like text remains literal data or is rejected by the service allowlist.
-8. Verify loading, focus, errors, success, and retry on mobile.
-9. Blank honeypot stores normally; populated honeypot creates no row.
-
-## Production
-
-```bash
-npm ci
-npm run build
-
-cd server
-npm ci
-npm run build
-npm run db:migrate:prod
-npm start
-```
-
-Production requirements:
-
-1. Store backend variables in the host's secret manager; set exact HTTPS `FRONTEND_ORIGIN` and `NODE_ENV=production`.
-2. Run migrations as a release step before the new API starts.
-3. Route public `/api/*` to Express; Vite's development proxy is not deployed in `dist/`.
-4. Serve everything over HTTPS and set `TRUST_PROXY=true` only behind one trusted proxy.
-5. Configure backups, monitoring, inquiry follow-up, and customer-data retention/deletion practices.
-6. Replace the in-memory limiter before running multiple API instances.
-
-## Troubleshooting
-
-- Server exits: verify `server/.env`, especially `DATABASE_URL` and `FRONTEND_ORIGIN`.
-- Migration fails: verify PostgreSQL, the database name, and credentials.
-- Frontend gets `404`: start the API or configure production `/api/*` routing.
-- CORS fails: the browser protocol, hostname, and port must exactly match `FRONTEND_ORIGIN`.
-- API returns `503`: PostgreSQL is unavailable or the migration has not run.
-- API returns `429`: wait for the limit window or adjust local development values.
-- Hosted TLS fails: follow the provider's certificate instructions and set `DATABASE_SSL` appropriately.
-
-## Site content
-
-Business details and frontend service options live in `src/data/siteContent.ts`.
-
-Images in `public/assets/` are AI-generated MVP visuals, not documented client work. Replace them with approved project photography before publishing. Do not add licensing, insurance, certification, or review-count claims until verified by the owner.
+The current images in `public/assets/` are AI-generated visuals used to support the MVP design; they are not documented client work. They will be replaced with approved project photography before a public business launch.
